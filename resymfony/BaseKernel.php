@@ -2,6 +2,7 @@
 namespace Resymfony;
 
 use Symfony\Component\Config\Loader\LoaderInterface;
+use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,11 +20,56 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
     protected $bundles = [];
 
     /**
+     * Bundles hierarchy
+     *
+     * @var array
+     */
+    private $bundleMap = [];
+
+    /**
      * Is the kernel booted already ?
      *
      * @var bool
      */
     private $booted = false;
+
+    /**
+     * @var string
+     */
+    private $name;
+
+    /**
+     * @var string
+     */
+    private $env;
+
+    /**
+     * @var bool
+     */
+    private $debug = false;
+
+    /**
+     * @var string
+     */
+    private $rootDir;
+
+    /**
+     * @var ContainerInterface
+     */
+    private $container;
+
+    /**
+     * @var float
+     */
+    private $startTime;
+
+    public function __construct($name, $env, $debug, $rootDir)
+    {
+        $this->name = $name;
+        $this->env = $env;
+        $this->debug = $debug;
+        $this->rootDir = $rootDir;
+    }
 
     /**
      * String representation of object
@@ -74,7 +120,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
 
             $response = new Response();
         } catch (\Exception $exception) {
-            if (false === $catch) {
+            if (true === $catch) {
                 throw $exception;
             }
             $response = new Response('ERROR', 500);
@@ -86,29 +132,34 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
     /**
      * Returns an array of bundles to register.
      *
-     * @return BundleInterface An array of bundle instances
+     * @return BundleInterface[] An array of bundle instances
      */
-    public function registerBundles()
-    {
-        // TODO: Implement registerBundles() method.
-    }
+    abstract public function registerBundles();
 
     /**
      * Loads the container configuration.
      *
      * @param LoaderInterface $loader A LoaderInterface instance
      */
-    public function registerContainerConfiguration(LoaderInterface $loader)
-    {
-        // TODO: Implement registerContainerConfiguration() method.
-    }
+    abstract public function registerContainerConfiguration(LoaderInterface $loader);
 
     /**
      * Boots the current kernel.
      */
     public function boot()
     {
-        $this->bundles = $this->registerBundles();
+        if (true === $this->booted) {
+            return;
+        }
+        if ($this->debug) {
+            $this->startTime = microtime(true);
+        }
+
+        $this->initializeBundles();
+
+        $this->initializeContainer();
+
+        $this->booted = true;
     }
 
     /**
@@ -118,17 +169,17 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function shutdown()
     {
-        // TODO: Implement shutdown() method.
+        return;
     }
 
     /**
      * Gets the registered bundle instances.
      *
-     * @return BundleInterface An array of registered bundle instances
+     * @return BundleInterface[] An array of registered bundle instances
      */
     public function getBundles()
     {
-        // TODO: Implement getBundles() method.
+        return $this->bundles;
     }
 
     /**
@@ -143,7 +194,17 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getBundle($name, $first = true)
     {
-        // TODO: Implement getBundle() method.
+        if (!isset($this->bundleMap[$name])) {
+            throw new \InvalidArgumentException(
+                sprintf('Unregistered bundle : %s', $name)
+            );
+        }
+        $bundle = $this->bundleMap[$name];
+        if (true === $first) {
+            return $bundle[0];
+        }
+
+        return $bundle;
     }
 
     /**
@@ -186,7 +247,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getName()
     {
-        // TODO: Implement getName() method.
+        return $this->name;
     }
 
     /**
@@ -196,7 +257,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getEnvironment()
     {
-        // TODO: Implement getEnvironment() method.
+        return $this->env;
     }
 
     /**
@@ -206,7 +267,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function isDebug()
     {
-        // TODO: Implement isDebug() method.
+        return $this->debug;
     }
 
     /**
@@ -216,7 +277,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getRootDir()
     {
-        // TODO: Implement getRootDir() method.
+        return $this->rootDir;
     }
 
     /**
@@ -226,7 +287,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getContainer()
     {
-        // TODO: Implement getContainer() method.
+        return $this->container;
     }
 
     /**
@@ -236,7 +297,10 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getStartTime()
     {
-        // TODO: Implement getStartTime() method.
+        if ($this->debug) {
+            return $this->startTime;
+        }
+        return -INF;
     }
 
     /**
@@ -246,7 +310,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getCacheDir()
     {
-        // TODO: Implement getCacheDir() method.
+        return $this->getRootDir().'/cache/'.$this->getEnvironment();
     }
 
     /**
@@ -256,7 +320,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getLogDir()
     {
-        // TODO: Implement getLogDir() method.
+        return $this->getRootDir().'/log/'.$this->getEnvironment();
     }
 
     /**
@@ -266,7 +330,7 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function getCharset()
     {
-        // TODO: Implement getCharset() method.
+        return 'UTF-8';
     }
 
     /**
@@ -279,6 +343,77 @@ abstract class BaseKernel implements KernelInterface, TerminableInterface
      */
     public function terminate(Request $request, Response $response)
     {
-        // TODO: Implement terminate() method.
+        return;
+    }
+
+    /**
+     * Initializes the data structures related to the bundle management.
+     *
+     *  - the bundles property maps a bundle name to the bundle instance,
+     *  - the bundleMap property maps a bundle name to the bundle inheritance hierarchy (most derived bundle first).
+     *
+     * @throws \LogicException if two bundles share a common name
+     * @throws \LogicException if a bundle tries to extend a non-registered bundle
+     * @throws \LogicException if a bundle tries to extend itself
+     * @throws \LogicException if two bundles extend the same ancestor
+     */
+    protected function initializeBundles()
+    {
+        // TODO Our own bundles initialization
+
+        // init bundles
+        $this->bundles = array();
+        $topMostBundles = array();
+        $directChildren = array();
+
+        foreach ($this->registerBundles() as $bundle) {
+            $name = $bundle->getName();
+            if (isset($this->bundles[$name])) {
+                throw new \LogicException(sprintf('Trying to register two bundles with the same name "%s"', $name));
+            }
+            $this->bundles[$name] = $bundle;
+
+            if ($parentName = $bundle->getParent()) {
+                if (isset($directChildren[$parentName])) {
+                    throw new \LogicException(sprintf('Bundle "%s" is directly extended by two bundles "%s" and "%s".', $parentName, $name, $directChildren[$parentName]));
+                }
+                if ($parentName == $name) {
+                    throw new \LogicException(sprintf('Bundle "%s" can not extend itself.', $name));
+                }
+                $directChildren[$parentName] = $name;
+            } else {
+                $topMostBundles[$name] = $bundle;
+            }
+        }
+
+        // look for orphans
+        if (!empty($directChildren) && count($diff = array_diff_key($directChildren, $this->bundles))) {
+            $diff = array_keys($diff);
+
+            throw new \LogicException(sprintf('Bundle "%s" extends bundle "%s", which is not registered.', $directChildren[$diff[0]], $diff[0]));
+        }
+
+        // inheritance
+        $this->bundleMap = array();
+        foreach ($topMostBundles as $name => $bundle) {
+            $bundleMap = array($bundle);
+            $hierarchy = array($name);
+
+            while (isset($directChildren[$name])) {
+                $name = $directChildren[$name];
+                array_unshift($bundleMap, $this->bundles[$name]);
+                $hierarchy[] = $name;
+            }
+
+            foreach ($hierarchy as $bundle) {
+                $this->bundleMap[$bundle] = $bundleMap;
+                array_pop($bundleMap);
+            }
+        }
+    }
+
+    protected function initializeContainer()
+    {
+        $this->container = new Container();
     }
 }

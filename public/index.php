@@ -6,7 +6,7 @@ require_once __DIR__.'/../vendor/autoload.php';
 
 Debug::enable();
 
-$kernel = new \AppKernel();
+$kernel = new \AppKernel('app', 'dev', true, realpath(__DIR__.'/../app'));
 
 $request = Request::createFromGlobals();
 
